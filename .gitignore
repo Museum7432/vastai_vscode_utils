@@ -1,0 +1,7 @@
+# Ignore everything
+*
+
+# Don't ignore the following files
+!vast_vscode_utils.py
+!PKGBUILD
+!.gitignore
