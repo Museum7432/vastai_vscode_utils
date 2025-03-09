@@ -19,12 +19,13 @@
 #     ],
 #     "agent": "$SSH_AUTH_SOCK"
 # }
-
+import subprocess
 
 from vastai_sdk import VastAI
 import argparse
 import os
 import json
+import shlex
 
 
 def get_ssh_port_ipaddr(raw_info, use_proxy=False):
@@ -61,7 +62,14 @@ def get_ssh_port_ipaddr(raw_info, use_proxy=False):
 
 
 def get_ssh_url(ipaddr, port, user):
-    return f"ssh://{user}@{ipaddr}:{port}"
+    assert isinstance(ipaddr, str)
+    assert isinstance(port, int)
+    assert isinstance(user, str)
+
+    ipaddr = shlex.quote(ipaddr)
+    user = shlex.quote(user)
+
+    return shlex.quote(f"ssh://{user}@{ipaddr}:{port}")
 
 
 def get_instances(vast_sdk, use_proxy=False):
@@ -71,13 +79,18 @@ def get_instances(vast_sdk, use_proxy=False):
 
     for i in raw_infos:
 
-        ipaddr, port = get_ssh_port_ipaddr(i, use_proxy=use_proxy)
-
+        try:
+            ipaddr, port = get_ssh_port_ipaddr(i, use_proxy=use_proxy)
+        except:
+            # skip instance if we can't connect to it
+            print(f"can't connect to {i["id"]}, skip!")
+            continue
         instances.update(
             {
                 f"v_{i["gpu_name"].replace(" ", "_")}_{i["id"]}": {
                     "ipaddr": ipaddr,
                     "port": port,
+                    "id": int(i["id"]),
                 }
             }
         )
@@ -203,7 +216,7 @@ def add_entries_sftpjson(
             print("use sftp template at sftp.template.json")
             with open("sftp.template.json", "r") as file:
                 data = json.load(file)
-                
+
                 if "profiles" not in data:
                     data["profiles"] = {}
         else:
@@ -223,10 +236,7 @@ def add_entries_sftpjson(
 
 
 # pull infos and path all, removing old instances
-def patch_all(user, remotePath, use_proxy=False):
-    vast_sdk = VastAI()
-
-    instances = get_instances(vast_sdk, use_proxy=use_proxy)
+def patch_all(user, remotePath, instances):
 
     # remove old entries
     rm_entries_settingsjson()
@@ -237,24 +247,99 @@ def patch_all(user, remotePath, use_proxy=False):
     add_entries_sftpjson(instances, user, remotePath)
 
 
+# install pixi
+def install_pixi(vast_sdk, instance, user):
+    ssh_str = get_ssh_url(ipaddr=instance["ipaddr"], port=instance["port"], user=user)
+
+    cmd = f'ssh -o StrictHostKeyChecking=no {ssh_str} "curl -fsSL https://pixi.sh/install.sh | bash"'
+
+    subprocess.run(cmd, shell=True)
+
+
+def pick_instances(instances):
+    # allow user to pick instances
+    choices = list(instances.keys())
+    for index, choice in enumerate(choices, start=1):
+        print(f"{index}. {choice}")
+
+    while True:
+        selection = input("pick one or enter to pick all: ")
+
+        if selection.strip() == "":
+            return instances
+
+        try:
+            selection = int(selection)
+        except:
+            continue
+
+        if 1 <= selection <= len(choices):
+
+            return {choices[selection]: instances[choices[selection]]}
+
+
 def main(args):
-    
-    match args.action:
-        case "add":
-            patch_all(
-                user=args.user, remotePath=args.remotePath, use_proxy=args.use_proxy
-            )
-        case "rm":
-            rm_entries_settingsjson()
-            rm_entries_sftpjson()
-        case "install_pixi":
-            raise NotImplementedError()
+
+    vast_sdk = None
+    instances = []
+    # pull the instance infos
+    # we don't need it for rm_instances
+    if args.add_instances or args.install_pixi:
+        vast_sdk = VastAI()
+        instances = get_instances(vast_sdk, use_proxy=args.use_proxy)
+
+        if len(instances) == 0:
+            return
+
+    if args.install_pixi:
+        picked_instances = instances
+        if len(instances) > 1:
+            print("pick instance")
+            picked_instances = pick_instances(instances)
+
+        for k, v in picked_instances.items():
+            print(f"install pixi to {k}")
+            install_pixi(vast_sdk, v, args.user)
+
+    if args.add_instances:
+        print("add instances to vscode")
+        patch_all(user=args.user, remotePath=args.remotePath, instances=instances)
+
+    elif args.rm_instances:
+        print("rm all instances from vscode")
+        rm_entries_settingsjson()
+        rm_entries_sftpjson()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("action", type=str, help="add|rm|install_pixi")
+    parser.add_argument(
+        "-a",
+        "--add_instances",
+        action="store_true",
+        help="add instances to vscode settings.json (ssh terminal profiles) and sftp.json",
+    )
+    parser.add_argument(
+        "-r",
+        "--rm_instances",
+        action="store_true",
+        help="remove all instances from vscode settings.json (ssh terminal profiles) and sftp.json",
+    )
+
+    parser.add_argument(
+        "-i",
+        "--install_pixi",
+        action="store_true",
+        help="install pixi to instance(s)",
+    )
+
+    parser.add_argument(
+        "-p",
+        "--use-proxy",
+        action="store_true",
+        help="use the the proxy ssh port",
+    )
 
     parser.add_argument(
         "-rp",
@@ -272,13 +357,8 @@ if __name__ == "__main__":
         default="root",
     )
 
-    parser.add_argument(
-        "-p",
-        "--use-proxy",
-        action="store_true",
-        help="use the the proxy ssh port",
-    )
-
     args = parser.parse_args()
+
+    assert not (args.add_instances and args.rm_instances)
 
     main(args)
