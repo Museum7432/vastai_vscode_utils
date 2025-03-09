@@ -2,6 +2,6 @@
 *
 
 # Don't ignore the following files
-!vast_vscode_utils.py
+!vast_vscode.py
 !PKGBUILD
 !.gitignore

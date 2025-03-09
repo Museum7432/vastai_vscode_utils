@@ -238,7 +238,7 @@ def patch_all(user, remotePath, use_proxy=False):
 
 
 def main(args):
-    print(args)
+    
     match args.action:
         case "add":
             patch_all(
