@@ -27,6 +27,8 @@ import os
 import json
 import shlex
 
+import inquirer
+
 
 def get_ssh_port_ipaddr(raw_info, use_proxy=False):
     # copied from vast cli
@@ -281,21 +283,48 @@ def pick_instances(instances):
 def main(args):
 
     vast_sdk = None
-    instances = []
+    instances = {}
     # pull the instance infos
     # we don't need it for rm_instances
-    if args.add_instances or args.install_pixi:
+    if args.add_instances or args.install_pixi or args.other_actions:
         vast_sdk = VastAI()
         instances = get_instances(vast_sdk, use_proxy=args.use_proxy)
 
         if len(instances) == 0:
             return
 
+    if args.other_actions:
+        choice = inquirer.list_input(
+            "pick actions?", choices=["delete instance", "stop instance"]
+        )
+
+        target = inquirer.list_input("pick instance?", choices=list(instances.keys()))
+
+        target_id = instances[target]["id"]
+
+        confirm = inquirer.confirm(
+            f"this will {"stop" if choice == "stop instance" else "delete"} instance {target}. Continue?",
+            default=True,
+        )
+
+        if confirm:
+            if choice == "stop instance":
+                re = vast_sdk.stop_instance(id=target_id)
+                # print(re)
+            else:
+                re = vast_sdk.destroy_instance(id=target_id)
+                # print(re)
+
     if args.install_pixi:
         picked_instances = instances
         if len(instances) > 1:
             print("pick instance")
-            picked_instances = pick_instances(instances)
+            options = ["all"] + list(instances.keys())
+
+            choice = inquirer.list_input("pick instance?", choices=options)
+
+            if choice != "all":
+                picked_instances = {choice: instances[choice]}
 
         for k, v in picked_instances.items():
             print(f"install pixi to {k}")
@@ -339,6 +368,13 @@ if __name__ == "__main__":
         "--use-proxy",
         action="store_true",
         help="use the the proxy ssh port",
+    )
+
+    parser.add_argument(
+        "-o",
+        "--other-actions",
+        action="store_true",
+        help="other actions like stop, delete instances",
     )
 
     parser.add_argument(

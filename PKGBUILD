@@ -14,7 +14,7 @@ options=('!debug')
 build() {
   python -m venv venv
   
-  venv/bin/python -m pip install pyinstaller==6.12.0 pyparsing==3.2.1 requests==2.32.3
+  venv/bin/python -m pip install pyinstaller==6.12.0 pyparsing==3.2.1 requests==2.32.3 xdg==6.0.0 python-dateutil==2.6.1 pytz==2025.1 urllib3==2.3.0 requests==2.32.3 inquirer==3.4.0
   venv/bin/python -m pip install vastai-sdk==0.1.16 --no-deps
   
   venv/bin/python -m PyInstaller --onefile vast_vscode.py
